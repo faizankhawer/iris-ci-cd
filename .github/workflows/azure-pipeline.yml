@@ -1,0 +1,31 @@
+name: Azure ML CI CD
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+
+    - uses: actions/checkout@v3
+
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Install Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.8
+
+    - run: pip install azure-ai-ml azure-identity scikit-learn
+
+    - name: Train Model
+      run: python train.py
+
+    - name: Deploy Model
+      run: python deploy.py

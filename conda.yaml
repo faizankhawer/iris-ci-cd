@@ -1,9 +1,11 @@
 name: iris-env
+channels:
+  - defaults
 dependencies:
-  - python=3.8
+  - python=3.9
   - pip
   - pip:
-    - azureml-defaults
-    - scikit-learn
-    - numpy
-    - joblib
+      - azureml-defaults
+      - scikit-learn
+      - numpy
+      - joblib

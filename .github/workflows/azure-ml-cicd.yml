@@ -1,0 +1,36 @@
+name: Azure ML CI/CD
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  train-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Train Model
+        run: |
+          python train.py
+
+      - name: Deploy Model
+        run: |
+          python deploy.py

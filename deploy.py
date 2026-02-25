@@ -1,48 +1,61 @@
+# deploy.py
+
 from azure.ai.ml import MLClient
+from azure.ai.ml.entities import (
+    ManagedOnlineEndpoint,
+    ManagedOnlineDeployment,
+    Environment,
+    CodeConfiguration
+)
 from azure.identity import DefaultAzureCredential
-from azure.ai.ml.entities import ManagedOnlineEndpoint, ManagedOnlineDeployment
-from azure.ai.ml.entities import Model, Environment, CodeConfiguration
+
+import uuid
+
+endpoint_name = "iris-endpoint-" + str(uuid.uuid4())[:8]
+deployment_name = "blue"
 
 credential = DefaultAzureCredential()
-
-ml_client = MLClient(
-    credential,
-    "SUBSCRIPTION_ID",
-    "RESOURCE_GROUP",
-    "WORKSPACE_NAME",
-)
-
-# Register model
-model = ml_client.models.create_or_update(
-    Model(
-        path="outputs/model.pkl",
-        name="iris-model"
-    )
-)
+ml_client = MLClient.from_config(credential)
 
 # Create endpoint
 endpoint = ManagedOnlineEndpoint(
-    name="iris-endpoint",
-    auth_mode="key"
+    name=endpoint_name,
+    auth_mode="key",
 )
 
-ml_client.begin_create_or_update(endpoint).wait()
+ml_client.online_endpoints.begin_create_or_update(endpoint).result()
 
-# Deployment
+# Create environment
+env = Environment(
+    name="iris-env",
+    conda_file="conda.yaml",
+    image="mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04:latest",
+)
+
+ml_client.environments.create_or_update(env)
+
+# Create deployment
 deployment = ManagedOnlineDeployment(
-    name="blue",
-    endpoint_name="iris-endpoint",
-    model=model,
-    environment=Environment(
-        conda_file="conda.yaml",
-        image="mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04"
-    ),
+    name=deployment_name,
+    endpoint_name=endpoint_name,
+    model="iris-model:latest",
+    environment=env,
     code_configuration=CodeConfiguration(
-        code=".",
+        code="./",
         scoring_script="score.py"
     ),
-    instance_type="Standard_DS3_v2",
-    instance_count=1
+    instance_type="Standard_DS2_v2",
+    instance_count=1,
 )
 
-ml_client.begin_create_or_update(deployment).wait()
+ml_client.online_deployments.begin_create_or_update(deployment).result()
+
+# Set traffic
+ml_client.online_endpoints.begin_update(
+    ManagedOnlineEndpoint(
+        name=endpoint_name,
+        traffic={"blue": 100}
+    )
+).result()
+
+print("Deployment successful!")

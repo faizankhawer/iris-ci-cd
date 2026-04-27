@@ -35,7 +35,14 @@ deployment_name = "blue"
 # Get Latest Model
 # -----------------------------
 print("Fetching latest model...")
-model = ml_client.models.get(name="iris-model", label="latest")
+models = list(ml_client.models.list(name="iris-model"))
+
+if not models:
+    raise Exception("❌ No models found in Azure ML")
+
+model = max(models, key=lambda m: int(m.version))
+
+print(f"Using model version: {model.version}")
 
 # -----------------------------
 # Create Endpoint

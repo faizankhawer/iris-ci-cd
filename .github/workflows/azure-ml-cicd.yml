@@ -1,4 +1,4 @@
-name: Azure ML CI/CD
+name: Azure ML CI/CD 
 
 on:
   push:

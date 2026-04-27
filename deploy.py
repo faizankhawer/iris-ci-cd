@@ -1,6 +1,6 @@
-from azure.ai.ml import MLClient
-from azure.identity import DefaultAzureCredential
-ml_client = MLClient.from_config(DefaultAzureCredential())
+import os
+import uuid
+
 from azure.ai.ml import MLClient
 from azure.ai.ml.entities import (
     ManagedOnlineEndpoint,
@@ -10,37 +10,63 @@ from azure.ai.ml.entities import (
 )
 from azure.identity import DefaultAzureCredential
 
-import uuid
 
+# -----------------------------
+# Authenticate & Initialize Client
+# -----------------------------
 credential = DefaultAzureCredential()
-ml_client = MLClient.from_config(credential)
 
+ml_client = MLClient(
+    credential=credential,
+    subscription_id=os.environ["AZURE_SUBSCRIPTION_ID"],
+    resource_group_name=os.environ["AZURE_RESOURCE_GROUP"],
+    workspace_name=os.environ["AZURE_WORKSPACE_NAME"],
+)
+
+print("Connected to Azure ML workspace")
+
+# -----------------------------
+# Names
+# -----------------------------
 endpoint_name = "iris-endpoint-" + str(uuid.uuid4())[:8]
 deployment_name = "blue"
 
-# Get latest registered model safely
+# -----------------------------
+# Get Latest Model
+# -----------------------------
+print("Fetching latest model...")
 model = ml_client.models.get(name="iris-model", label="latest")
 
-# Create endpoint
+# -----------------------------
+# Create Endpoint
+# -----------------------------
 endpoint = ManagedOnlineEndpoint(
     name=endpoint_name,
     auth_mode="key",
 )
 
-print("Creating endpoint...")
+print(f"Creating endpoint: {endpoint_name}")
 ml_client.online_endpoints.begin_create_or_update(endpoint).result()
 
-# Create environment (versioned)
+# -----------------------------
+# Create Environment
+# -----------------------------
+print("Creating environment...")
+
 env = Environment(
     name="iris-env",
     description="Iris inference environment",
-    conda_file="conda.yaml",
+    conda_file="conda.yaml",   # make sure this file exists
     image="mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04:latest",
 )
 
 env = ml_client.environments.create_or_update(env)
 
-# Create deployment
+# -----------------------------
+# Create Deployment
+# -----------------------------
+print("Deploying model...")
+
 deployment = ManagedOnlineDeployment(
     name=deployment_name,
     endpoint_name=endpoint_name,
@@ -48,17 +74,20 @@ deployment = ManagedOnlineDeployment(
     environment=env.id,
     code_configuration=CodeConfiguration(
         code="./",
-        scoring_script="score.py",
+        scoring_script="score.py",   # make sure this file exists
     ),
     instance_type="Standard_DS2_v2",
     instance_count=1,
 )
 
-print("Deploying model...")
 ml_client.online_deployments.begin_create_or_update(deployment).result()
 
-# Route traffic
+# -----------------------------
+# Route Traffic
+# -----------------------------
 endpoint.traffic = {deployment_name: 100}
+
 ml_client.online_endpoints.begin_create_or_update(endpoint).result()
 
-print(f"Deployment successful! Endpoint: {endpoint_name}")
+print(f"✅ Deployment successful!")
+print(f"Endpoint name: {endpoint_name}")

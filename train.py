@@ -10,7 +10,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 from mlflow.models.signature import infer_signature
 
+from azure.ai.ml import MLClient
+from azure.identity import DefaultAzureCredential
 
+ml_client = MLClient.from_config(DefaultAzureCredential())
 def validate_env():
     required_vars = [
         "AZURE_SUBSCRIPTION_ID",

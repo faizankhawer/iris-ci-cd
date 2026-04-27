@@ -1,0 +1,4 @@
+az ml workspace show \
+  --name newws \
+  --resource-group mywsfaiz \
+  --output json > config.json

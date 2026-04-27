@@ -21,13 +21,16 @@ dependencies:
 - name: Verify Azure Login
   run: az account show
 
-  - name: Install dependencies
+- name: Install dependencies
   run: |
     pip install azure-ai-ml azure-identity mlflow scikit-learn joblib numpy
 
-  - name: Create Azure ML config
+- name: Create Azure ML config
   run: |
     az ml workspace show \
       --name ${{ secrets.AZURE_WORKSPACE_NAME }} \
       --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
       --output json > config.json
+permissions:
+  id-token: write
+  contents: read

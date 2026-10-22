@@ -1,3 +1,4 @@
+
 import os
 import argparse
 import joblib
@@ -15,131 +16,91 @@ from azure.ai.ml.entities import Model
 from azure.identity import DefaultAzureCredential
 
 
-# -----------------------------
-# Azure ML Client
-# -----------------------------
-ml_client = MLClient(
-    credential=DefaultAzureCredential(),
-    subscription_id=os.environ["AZURE_SUBSCRIPTION_ID"],
-    resource_group_name=os.environ["AZURE_RESOURCE_GROUP"],
-    workspace_name=os.environ["AZURE_WORKSPACE_NAME"],
-)
-
-
-# -----------------------------
-# Validate Environment Variables
-# -----------------------------
-def validate_env():
-    required_vars = [
+def get_ml_client():
+    required = [
         "AZURE_SUBSCRIPTION_ID",
         "AZURE_RESOURCE_GROUP",
         "AZURE_WORKSPACE_NAME",
     ]
 
-    missing = [var for var in required_vars if var not in os.environ]
-
+    missing = [key for key in required if not os.environ.get(key)]
     if missing:
-        raise EnvironmentError(f"Missing environment variables: {missing}")
+        raise EnvironmentError(
+            f"Missing environment variables: {missing}"
+        )
 
-    print("✅ Environment variables loaded successfully")
-
-
-# -----------------------------
-# Register Model to Azure ML
-# -----------------------------
-def register_model_to_azure(model_path, model_name):
-    print("📦 Registering model in Azure ML...")
-
-    model = Model(
-        path=model_path,
-        name=model_name,
-        description="Iris classification model",
-        type="custom_model",
+    return MLClient(
+        credential=DefaultAzureCredential(),
+        subscription_id=os.environ["AZURE_SUBSCRIPTION_ID"],
+        resource_group_name=os.environ["AZURE_RESOURCE_GROUP"],
+        workspace_name=os.environ["AZURE_WORKSPACE_NAME"],
     )
 
-    registered_model = ml_client.models.create_or_update(model)
+
+def train_model(model_name):
+    ml_client = get_ml_client()
+
+    iris = load_iris()
+    X_train, X_test, y_train, y_test = train_test_split(
+        iris.data,
+        iris.target,
+        test_size=0.2,
+        random_state=42,
+        stratify=iris.target,
+    )
+
+    model = RandomForestClassifier(
+        n_estimators=100,
+        random_state=42,
+    )
+
+    model.fit(X_train, y_train)
+
+    predictions = model.predict(X_test)
+    accuracy = accuracy_score(y_test, predictions)
+
+    print(f"Accuracy: {accuracy:.4f}")
+
+    os.makedirs("outputs", exist_ok=True)
+    model_path = "outputs/model.pkl"
+    joblib.dump(model, model_path)
+
+    mlflow.set_experiment("iris-classification")
+
+    with mlflow.start_run():
+        mlflow.log_metric("accuracy", float(accuracy))
+        mlflow.log_param("n_estimators", 100)
+        mlflow.log_param("random_state", 42)
+
+        signature = infer_signature(X_train, model.predict(X_train))
+
+        mlflow.sklearn.log_model(
+            model,
+            artifact_path="model",
+            signature=signature,
+            input_example=X_train[:2],
+        )
+
+    registered_model = ml_client.models.create_or_update(
+        Model(
+            path=model_path,
+            name=model_name,
+            description="Random Forest Iris classification model",
+            type="custom_model",
+        )
+    )
 
     print(
-        f"✅ Model registered in Azure ML → Name: {registered_model.name}, Version: {registered_model.version}"
+        f"Registered model: {registered_model.name}, "
+        f"version: {registered_model.version}"
     )
 
     return registered_model
 
 
-# -----------------------------
-# Train Model
-# -----------------------------
-def train_model(model_name):
-    print("📊 Loading Iris dataset...")
-
-    iris = load_iris()
-    X = iris.data
-    y = iris.target
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
-
-    mlflow.set_experiment("iris-classification")
-
-    with mlflow.start_run():
-
-        print("🚀 Training model...")
-
-        model = RandomForestClassifier(n_estimators=100)
-        model.fit(X_train, y_train)
-
-        print("📈 Evaluating model...")
-
-        preds = model.predict(X_test)
-        acc = accuracy_score(y_test, preds)
-
-        print(f"✅ Accuracy: {acc}")
-
-        # Log metrics
-        mlflow.log_metric("accuracy", acc)
-
-        # Signature
-        signature = infer_signature(X_train, preds)
-
-        # Log model to MLflow (optional but fine)
-        mlflow.sklearn.log_model(
-            model,
-            artifact_path="model",
-            registered_model_name=model_name,
-            signature=signature,
-            input_example=X_train[:2],
-        )
-
-    # -----------------------------
-    # Save model locally
-    # -----------------------------
-    model_path = "model.pkl"
-    joblib.dump(model, model_path)
-
-    print(f"💾 Model saved locally at {model_path}")
-
-    # -----------------------------
-    # Register in Azure ML
-    # -----------------------------
-    register_model_to_azure(model_path, model_name)
-
-    return model
-
-
-# -----------------------------
-# Main
-# -----------------------------
-def main():
-    validate_env()
-
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_name", type=str, default="iris-model")
-
+    parser.add_argument("--model_name", default="iris-model")
     args = parser.parse_args()
 
     train_model(args.model_name)
-
-
-if __name__ == "__main__":
-    main()

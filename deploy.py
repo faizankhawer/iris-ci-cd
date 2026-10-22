@@ -1,100 +1,102 @@
+
 import os
-import uuid
 
 from azure.ai.ml import MLClient
 from azure.ai.ml.entities import (
     ManagedOnlineEndpoint,
     ManagedOnlineDeployment,
-    Environment,
     CodeConfiguration,
+    Environment,
 )
 from azure.identity import DefaultAzureCredential
 
 
-# -----------------------------
-# Authenticate & Initialize Client
-# -----------------------------
-credential = DefaultAzureCredential()
+MODEL_NAME = "iris-model"
+ENDPOINT_NAME = "iris-endpoint"
+DEPLOYMENT_NAME = "blue"
 
-ml_client = MLClient(
-    credential=credential,
-    subscription_id=os.environ["AZURE_SUBSCRIPTION_ID"],
-    resource_group_name=os.environ["AZURE_RESOURCE_GROUP"],
-    workspace_name=os.environ["AZURE_WORKSPACE_NAME"],
+INSTANCE_TYPE = os.getenv(
+    "AZUREML_INSTANCE_TYPE", "Standard_DS2_v2"
 )
 
-print("Connected to Azure ML workspace")
 
-# -----------------------------
-# Names
-# -----------------------------
-endpoint_name = "iris-endpoint-" + str(uuid.uuid4())[:8]
-deployment_name = "blue"
+def main():
+    ml_client = MLClient(
+        credential=DefaultAzureCredential(),
+        subscription_id=os.environ["AZURE_SUBSCRIPTION_ID"],
+        resource_group_name=os.environ["AZURE_RESOURCE_GROUP"],
+        workspace_name=os.environ["AZURE_WORKSPACE_NAME"],
+    )
 
-# -----------------------------
-# Get Latest Model
-# -----------------------------
-print("Fetching latest model...")
-models = list(ml_client.models.list(name="iris-model"))
+    # Find the latest registered version.
+    models = list(ml_client.models.list(name=MODEL_NAME))
 
-if not models:
-    raise Exception("❌ No models found in Azure ML")
+    if not models:
+        raise RuntimeError(
+            f"No registered model found: {MODEL_NAME}"
+        )
 
-model = max(models, key=lambda m: int(m.version))
+    model = max(models, key=lambda item: int(item.version))
 
-print(f"Using model version: {model.version}")
+    print(
+        f"Deploying {model.name}, version {model.version}"
+    )
 
-# -----------------------------
-# Create Endpoint
-# -----------------------------
-endpoint = ManagedOnlineEndpoint(
-    name=endpoint_name,
-    auth_mode="key",
-)
+    endpoint = ManagedOnlineEndpoint(
+        name=ENDPOINT_NAME,
+        description="Iris classification endpoint",
+        auth_mode="key",
+    )
 
-print(f"Creating endpoint: {endpoint_name}")
-ml_client.online_endpoints.begin_create_or_update(endpoint).result()
+    ml_client.online_endpoints.begin_create_or_update(
+        endpoint
+    ).result()
 
-# -----------------------------
-# Create Environment
-# -----------------------------
-print("Creating environment...")
+    environment = Environment(
+        name="iris-inference-env",
+        image=(
+            "mcr.microsoft.com/azureml/"
+            "openmpi4.1.0-ubuntu22.04:latest"
+        ),
+        conda_file="conda.yaml",
+    )
 
-env = Environment(
-    name="iris-env",
-    description="Iris inference environment",
-    conda_file="conda.yaml",   # make sure this file exists
-    image="mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu20.04:latest",
-)
+    deployment = ManagedOnlineDeployment(
+        name=DEPLOYMENT_NAME,
+        endpoint_name=ENDPOINT_NAME,
+        model=model,
+        environment=environment,
+        code_configuration=CodeConfiguration(
+            code=".",
+            scoring_script="score.py",
+        ),
+        instance_type=INSTANCE_TYPE,
+        instance_count=1,
+    )
 
-env = ml_client.environments.create_or_update(env)
+    ml_client.online_deployments.begin_create_or_update(
+        deployment
+    ).result()
 
-# -----------------------------
-# Create Deployment
-# -----------------------------
-print("Deploying model...")
+    # Route all endpoint traffic to the new deployment.
+    endpoint = ml_client.online_endpoints.get(
+        name=ENDPOINT_NAME
+    )
+    endpoint.traffic = {DEPLOYMENT_NAME: 100}
 
-deployment = ManagedOnlineDeployment(
-    name=deployment_name,
-    endpoint_name=endpoint_name,
-    model=model.id,
-    environment=env.id,
-    code_configuration=CodeConfiguration(
-        code="./",
-        scoring_script="score.py",   # make sure this file exists
-    ),
-    instance_type="Standard_DS2_v2",
-    instance_count=1,
-)
+    ml_client.online_endpoints.begin_create_or_update(
+        endpoint
+    ).result()
 
-ml_client.online_deployments.begin_create_or_update(deployment).result()
+    print(f"Deployment completed: {ENDPOINT_NAME}")
 
-# -----------------------------
-# Route Traffic
-# -----------------------------
-endpoint.traffic = {deployment_name: 100}
+    keys = ml_client.online_endpoints.get_keys(
+        name=ENDPOINT_NAME
+    )
 
-ml_client.online_endpoints.begin_create_or_update(endpoint).result()
+    print("Endpoint URL:", endpoint.scoring_uri)
+    print("Primary key retrieved; not displaying it.")
 
-print(f"✅ Deployment successful!")
-print(f"Endpoint name: {endpoint_name}")
+
+if __name__ == "__main__":
+    main()
